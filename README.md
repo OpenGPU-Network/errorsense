@@ -1,8 +1,12 @@
 # ErrorSense
 
-Error classification engine for circuit breakers, benching decisions, alert routing, and retry logic.
+Error classification engine. Rules for the obvious, LLM for the ambiguous.
 
-**The problem:** A user sends a bad request (invalid model name). The provider returns 500. Your circuit breaker counts it as a provider failure. After 3 bad user requests, the healthy provider is benched. ErrorSense classifies errors *before* the decision so only real failures count.
+Most errors are easy to classify — a 400 is a client error, a 502 is a server error. But some aren't — a 500 with "model not found" in the body is actually a client error, not a server failure. Your rules can't catch every edge case. An LLM can.
+
+ErrorSense runs errors through a phase pipeline: fast deterministic rulesets first, LLM only when rulesets can't decide. Most errors never hit the LLM. The ones that do get classified correctly instead of falling through as "unknown."
+
+**Use it for:** circuit breakers, alert routing, retry logic, error dashboards; anywhere you need to know *what kind* of error happened, not just *that* it happened.
 
 ## Install
 
@@ -11,128 +15,169 @@ pip install errorsense              # core only (zero dependencies)
 pip install errorsense[llm]         # + LLM classification
 ```
 
-## Quick Start
+## Quick Start — Use a Preset
 
 ```python
-from errorsense import ErrorSense, Phase, Ruleset, Signal
+from errorsense.presets import http
+from errorsense import LLMConfig, Signal
 
+sense = http(llm=LLMConfig(api_key="your_api_key"))
+
+results = sense.classify(Signal.from_http(status_code=400, body="bad request"))
+results[0].label  # "client"
+
+results = sense.classify(Signal.from_http(status_code=502))
+results[0].label  # "server"
+
+results = sense.classify(Signal.from_http(status_code=500, body="model not found"))
+results[0].label  # "client" (LLM figured it out)
+```
+
+The `http` preset gives you a 3-phase pipeline (rules → patterns → LLM) with 3 categories: `"client"`, `"server"`, `"undecided"`. Rulesets handle obvious cases instantly. LLM handles the ambiguous ones.
+
+Don't want LLM? Use `http_no_llm()` — rulesets only, ambiguous errors come back as `"undecided"`.
+
+## Build Your Own Pipeline
+
+A pipeline is a list of phases. Each phase has rulesets (deterministic) or skills (LLM). You can mix both, use only rulesets, or use only skills.
+
+```python
+from errorsense import ErrorSense, Phase, Ruleset, Skill, LLMConfig, Signal
+
+# Rulesets + LLM
 sense = ErrorSense(
-    categories=["infra", "provider", "user"],
-    phases=[
-        Phase("rules", rulesets=[
-            Ruleset(field="status_code", match={
-                "4xx": "user", 502: "infra", 503: "infra", 504: "infra",
+    categories=["transient", "permanent", "user"],
+    pipeline=[
+        Phase("codes", rulesets=[
+            Ruleset(field="error_code", match={
+                "ECONNRESET": "transient", "ETIMEOUT": "transient", "EPERM": "permanent",
             }),
         ]),
         Phase("patterns", rulesets=[
-            Ruleset(field="body", patterns=[
-                ("infra", [r"cuda", r"out of memory", r"connection refused"]),
-                ("user",  [r"model.*not found", r"invalid", r"unsupported"]),
+            Ruleset(field="message", patterns=[
+                ("transient", [r"timeout", r"connection reset", r"retry"]),
+                ("permanent", [r"corruption", r"fatal"]),
             ]),
         ]),
+        Phase("llm", skills=[
+            Skill("my_classifier", path="./skills/my_classifier.md"),
+        ], llm=LLMConfig(api_key="your_key")),
     ],
-    default="provider",
+    default="transient",
 )
 
-signal = Signal.from_http(status_code=503, body="CUDA out of memory")
-results = sense.classify(signal)
-# results[0].label      -> "infra"
-# results[0].confidence -> 0.9
-# results[0].phase      -> "patterns"
+# Rulesets only — no LLM needed
+sense = ErrorSense(
+    categories=["client", "server"],
+    pipeline=[
+        Phase("rules", rulesets=[
+            Ruleset(field="status_code", match={"4xx": "client", 502: "server"}),
+        ]),
+    ],
+    default="server",
+)
+
+# LLM only — skip rulesets entirely
+sense = ErrorSense(
+    categories=["client", "server"],
+    pipeline=[
+        Phase("llm", skills=[
+            Skill("my_classifier", path="./skills/my_classifier.md"),
+        ], llm=LLMConfig(api_key="your_key")),
+    ],
+    default="unknown",
+)
 ```
 
-## Or use a preset
+Phases run in order. First match wins. Rulesets are instant and free. LLM is the fallback.
+
+## Rulesets
+
+Each ruleset does one thing — `match=` for field matching or `patterns=` for regex:
 
 ```python
-from errorsense.presets import http, http_no_llm
-from errorsense import LLMConfig
-
-# With LLM — handles ambiguous errors (recommended)
-sense = http(llm=LLMConfig(api_key="your_api_key"))
-
-# Without LLM — only classifies clear-cut cases
-sense = http_no_llm()
-
-results = sense.classify(Signal.from_http(status_code=400, body="bad request"))
-# results[0].label -> "client"
+Ruleset(field="status_code", match={400: "client", 502: "server"})         # exact match
+Ruleset(field="status_code", match={"4xx": "client", 503: "server"})       # range match
+Ruleset(field="headers.content-type", match={"text/html": "server"})       # header match
+Ruleset(field="body.error.type", match={"validation_error": "client"})     # JSON dot-path
+Ruleset(field="body", patterns=[("server", [r"OOM"]), ("client", [r"invalid"])])  # regex
 ```
 
-## Phase Pipeline
-
-Classification runs through named phases in order. First phase to match wins (`short_circuit=True`, the default).
-
-**Rulesets** = deterministic logic (field matching, regex patterns):
+Custom logic? Subclass:
 
 ```python
-Ruleset(field="status_code", match={400: "user", 502: "infra"})
-Ruleset(field="status_code", match={"4xx": "user", 503: "infra"})
-Ruleset(field="headers.content-type", match={"text/html": "infra"})
-Ruleset(field="body.error.type", match={"invalid_request_error": "user"})
-Ruleset(field="body", patterns=[("infra", [r"cuda", r"OOM"]), ("user", [r"invalid"])])
+class VendorBugRuleset(Ruleset):
+    def classify(self, signal: Signal) -> SenseResult | None:
+        if signal.get("vendor") == "acme" and signal.get("code") == "X99":
+            return SenseResult(label="known_bug", confidence=1.0)
+        return None
 ```
 
-**Skills** = LLM domain instructions (loaded from .md files in errorsense/skills/):
+## Skills
+
+Skills are LLM instructions stored as `.md` files. Each skill teaches the LLM how to classify errors in a specific domain.
 
 ```python
-from errorsense import Skill, LLMConfig
+# Loads from errorsense/skills/http_classifier.md (built-in)
+Skill("http_classifier")
 
-Phase("llm", skills=[
-    Skill(name="my_classifier", instructions="Classify this error..."),
-], llm=LLMConfig(api_key="..."))
+# Loads from your own file
+Skill("my_classifier", path="./skills/my_classifier.md")
 ```
-
-95%+ of errors resolve at the ruleset level. LLM is a last resort.
 
 ## All Phases Mode
 
 ```python
 # Default — stops at first match
 results = sense.classify(signal)
-# [SenseResult(label="infra", phase="rules", ...)]
 
-# All phases — every phase runs
+# All phases run
 results = sense.classify(signal, short_circuit=False)
-# [SenseResult(label="infra", phase="rules", ...), SenseResult(label="infra", phase="patterns", ...)]
 
 # With LLM reasoning
-results = sense.classify(signal, short_circuit=False, explain=True)
-# LLM results include .reason field
+results = sense.classify(signal, explain=True)
+results[0].reason  # "ECONNRESET indicates transient network failure"
 ```
 
-## Tracker (Stateful Decisions)
+## Trailing (Stateful Error Tracking)
 
-For "should I bench this provider?" decisions:
+Track errors per key. When a threshold is hit, the LLM reviews the full error history.
 
 ```python
-from errorsense import Tracker, Signal
+from errorsense import TrailingConfig
 
-tracker = Tracker(
-    classifier=sense,
-    threshold=3,
-    count_labels=["infra", "provider"],  # user errors don't count
+sense = ErrorSense(
+    categories=["transient", "permanent", "user"],
+    pipeline=[...],
+    trailing=TrailingConfig(
+        threshold=3,
+        count_labels=["transient", "permanent"],  # user errors don't count
+    ),
 )
 
-signal = Signal.from_http(status_code=502, body="Bad Gateway")
-result = tracker.record("provider-1:gpt-5", signal)
+# In your error handler:
+result = sense.trail("service-a", signal)
+result.label         # "transient"
+result.at_threshold  # True (3rd counted error)
+result.reason        # LLM review: "3 transient errors — all connection resets..."
 
-if result.at_threshold:
-    decision = await tracker.async_should_trip("provider-1:gpt-5")
-    if decision.trip:
-        bench_provider(decision)
-
-tracker.reset("provider-1:gpt-5")
+# On success:
+sense.reset("service-a")
 ```
 
-## Custom Rulesets
+**How it works:**
+- Each `trail()` call classifies the signal normally through the pipeline
+- Counted labels accumulate per key toward the threshold
+- At threshold, the LLM reviews all recorded errors and gives its verdict
+- If the review changes the label, the history entry is corrected and the count adjusts
+- `review=False` in TrailingConfig disables LLM review (just counting)
+
+**Manual review anytime:**
 
 ```python
-from errorsense import Ruleset, Signal, SenseResult
-
-class VendorBugRuleset(Ruleset):
-    def classify(self, signal: Signal) -> SenseResult | None:
-        if signal.get("vendor") == "acme" and signal.get("code") == "X99":
-            return SenseResult(label="known_bug", confidence=1.0)
-        return None
+verdict = sense.review("service-a")
+verdict.label   # LLM's verdict on the full history
+verdict.reason  # explanation
 ```
 
 ## License

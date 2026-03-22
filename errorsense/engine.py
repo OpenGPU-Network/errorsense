@@ -33,7 +33,7 @@ class ErrorSense:
         self,
         categories: list[str],
         # Explicit mode
-        phases: list[Phase] | None = None,
+        pipeline: list[Phase] | None = None,
         # Implicit mode
         rulesets: list[Ruleset] | None = None,
         skills: list[Skill] | None = None,
@@ -49,25 +49,25 @@ class ErrorSense:
         self._on_classify = on_classify
         self._on_error = on_error
 
-        if phases is not None:
+        if pipeline is not None:
             if rulesets is not None or skills is not None or llm is not None:
                 raise ValueError(
-                    "Cannot mix explicit (phases=) and implicit (rulesets=/skills=/llm=) modes"
+                    "Cannot mix explicit (pipeline=) and implicit (rulesets=/skills=/llm=) modes"
                 )
-            self._phases = list(phases)
+            self._pipeline = list(pipeline)
         else:
-            self._phases = self._build_implicit_phases(rulesets, skills, llm)
+            self._pipeline = self._build_implicit_pipeline(rulesets, skills, llm)
 
         self._validate_phase_names()
-        self._phase_names = frozenset(p.name for p in self._phases)
+        self._pipeline_names = frozenset(p.name for p in self._pipeline)
         self._validate_categories()
         self._validate_llm_api_keys()
-        for phase in self._phases:
+        for phase in self._pipeline:
             phase.set_categories(list(categories))
 
         # Trailing state
         self._trailing = trailing
-        self._has_llm = any(p.is_llm_phase for p in self._phases)
+        self._has_llm = any(p.is_llm_phase for p in self._pipeline)
         self._reclass_skill: Skill | None = None
         if trailing:
             self._init_trailing(trailing)
@@ -93,23 +93,23 @@ class ErrorSense:
         self._async_trail_locks: dict[str, asyncio.Lock] = {}
 
     @property
-    def phases(self) -> list[Phase]:
-        return list(self._phases)
+    def pipeline(self) -> list[Phase]:
+        return list(self._pipeline)
 
     def get_phase(self, name: str) -> Phase | None:
-        for phase in self._phases:
+        for phase in self._pipeline:
             if phase.name == name:
                 return phase
         return None
 
     def close(self) -> None:
         """Close all LLM phase clients (sync)."""
-        for phase in self._phases:
+        for phase in self._pipeline:
             phase.close_sync()
 
     async def async_close(self) -> None:
         """Close all LLM phase clients (async)."""
-        for phase in self._phases:
+        for phase in self._pipeline:
             await phase.close_async()
 
     async def __aenter__(self) -> ErrorSense:
@@ -129,13 +129,13 @@ class ErrorSense:
     ) -> list[SenseResult]:
         """Classify a signal through the phase pipeline (sync).
 
-        Returns list of SenseResult from phases that matched.
+        Returns list of SenseResult from pipeline phases that matched.
         If nothing matched, returns [default_result].
         """
         skip_set = self._validate_skip(skip)
         results: list[SenseResult] = []
 
-        for phase in self._phases:
+        for phase in self._pipeline:
             if phase.name in skip_set:
                 continue
             try:
@@ -167,7 +167,7 @@ class ErrorSense:
         skip_set = self._validate_skip(skip)
         results: list[SenseResult] = []
 
-        for phase in self._phases:
+        for phase in self._pipeline:
             if phase.name in skip_set:
                 continue
             try:
@@ -319,7 +319,7 @@ class ErrorSense:
             return None
 
     def _find_llm_phase(self) -> Phase | None:
-        for phase in self._phases:
+        for phase in self._pipeline:
             if phase.is_llm_phase:
                 return phase
         return None
@@ -371,7 +371,7 @@ class ErrorSense:
 
     # -- Internal --
 
-    def _build_implicit_phases(
+    def _build_implicit_pipeline(
         self,
         rulesets: list[Ruleset] | None,
         skills: list[Skill] | None,
@@ -385,19 +385,19 @@ class ErrorSense:
                 raise ValueError("skills= requires llm=LLMConfig(...)")
             phases.append(Phase("llm", skills=skills, llm=llm))
         if not phases:
-            raise ValueError("Must provide phases= or at least rulesets=")
+            raise ValueError("Must provide pipeline= or at least rulesets= or skills=")
         return phases
 
     def _validate_phase_names(self) -> None:
         seen: set[str] = set()
-        for phase in self._phases:
+        for phase in self._pipeline:
             if phase.name in seen:
                 raise ValueError(f"Duplicate phase name: {phase.name!r}")
             seen.add(phase.name)
 
     def _validate_categories(self) -> None:
         all_cats = self.categories | {self.default}
-        for phase in self._phases:
+        for phase in self._pipeline:
             for ruleset in phase.rulesets:
                 bad = ruleset.referenced_labels() - all_cats
                 if bad:
@@ -407,7 +407,7 @@ class ErrorSense:
                     )
 
     def _validate_llm_api_keys(self) -> None:
-        for phase in self._phases:
+        for phase in self._pipeline:
             if not phase.is_llm_phase:
                 continue
             if not phase.llm or not phase.llm.api_key:
@@ -420,11 +420,11 @@ class ErrorSense:
         if not skip:
             return set()
         skip_set = set(skip)
-        invalid = skip_set - self._phase_names
+        invalid = skip_set - self._pipeline_names
         if invalid:
             raise ValueError(
                 f"Unknown phase names in skip: {invalid}. "
-                f"Valid phases: {sorted(self._phase_names)}"
+                f"Valid phase names: {sorted(self._pipeline_names)}"
             )
         return skip_set
 

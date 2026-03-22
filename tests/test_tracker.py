@@ -9,7 +9,7 @@ def make_sense(**kwargs):
     """Helper to build an ErrorSense with trailing enabled."""
     defaults = {
         "categories": ["infra", "provider", "user"],
-        "phases": [
+        "pipeline": [
             Phase("rules", rulesets=[
                 Ruleset(field="status_code", match={400: "user", 401: "user", 502: "infra", 503: "infra"}),
             ]),
@@ -112,7 +112,7 @@ class TestTrail:
     def test_trail_without_config_raises(self):
         sense = ErrorSense(
             categories=["a"],
-            phases=[Phase("p1", rulesets=[Ruleset(field="x", match={1: "a"})])],
+            pipeline=[Phase("p1", rulesets=[Ruleset(field="x", match={1: "a"})])],
         )
         with pytest.raises(RuntimeError, match="Trailing not configured"):
             sense.trail("key", Signal({"x": 1}))

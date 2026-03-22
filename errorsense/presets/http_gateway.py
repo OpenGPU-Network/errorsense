@@ -49,7 +49,7 @@ def http(
 
     return ErrorSense(
         categories=["client", "server", "undecided"],
-        phases=phases,
+        pipeline=phases,
         default="undecided",
     )
 
@@ -67,6 +67,6 @@ def http_no_llm(
     """
     return ErrorSense(
         categories=["client", "server", "undecided"],
-        phases=_ruleset_phases(extra_rulesets),
+        pipeline=_ruleset_phases(extra_rulesets),
         default="undecided",
     )
