@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "errorsense"
 version = "0.1.0"
-description = "AI-powered error classification engine for circuit breakers, benching, and alert routing"
+description = "Error classification engine. Rules for the obvious, AI for the ambiguous."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
