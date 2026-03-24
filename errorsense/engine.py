@@ -410,10 +410,10 @@ class ErrorSense:
         for phase in self._pipeline:
             if not phase.is_llm_phase:
                 continue
-            if not phase.llm or not phase.llm.api_key:
+            if not phase.llm:
                 raise ValueError(
-                    f"Phase {phase.name!r} uses LLM skills but no API key is configured. "
-                    f"Pass llm=LLMConfig(api_key=...) to the Phase."
+                    f"Phase {phase.name!r} uses LLM skills but no LLM config provided. "
+                    f"Pass llm=LLMConfig() to the Phase."
                 )
 
     def _validate_skip(self, skip: set[str] | list[str] | None) -> set[str]:

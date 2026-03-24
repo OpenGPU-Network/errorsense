@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import threading
 from dataclasses import dataclass
 from typing import Any
@@ -17,8 +18,8 @@ logger = logging.getLogger("errorsense.llm")
 
 __all__ = ["LLMConfig", "LLMClient"]
 
-DEFAULT_BASE_URL = "https://relay.opengpu.network/v1"
-DEFAULT_MODEL = "gpt-oss:120b"
+DEFAULT_BASE_URL = "https://relay.opengpu.network/v2/openai/v1"
+DEFAULT_MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
 DEFAULT_PROMPT_TEMPLATE = (
     "{instructions}\n\n"
     "Classify the following error signal into exactly one of these categories: {categories}\n\n"
@@ -29,13 +30,28 @@ DEFAULT_PROMPT_TEMPLATE = (
 
 @dataclass(frozen=True)
 class LLMConfig:
-    """Connection config for LLM API."""
+    """Connection config for LLM API.
 
-    api_key: str
-    model: str = DEFAULT_MODEL
-    base_url: str = DEFAULT_BASE_URL
+    Resolution order: explicit arg > env var > built-in default.
+
+    Env vars: ERRORSENSE_LLM_API_KEY, ERRORSENSE_MODEL, ERRORSENSE_LLM_URL
+    """
+
+    # Defaults are empty so __post_init__ can detect "not set" and check env vars.
+    # Actual defaults (DEFAULT_MODEL, DEFAULT_BASE_URL) are resolved in __post_init__.
+    api_key: str = ""
+    model: str = ""
+    base_url: str = ""
     timeout: float = 10.0
     max_signal_size: int = 500
+
+    def __post_init__(self) -> None:
+        if not self.api_key:
+            object.__setattr__(self, "api_key", os.environ.get("ERRORSENSE_LLM_API_KEY", ""))
+        if not self.model:
+            object.__setattr__(self, "model", os.environ.get("ERRORSENSE_MODEL", DEFAULT_MODEL))
+        if not self.base_url:
+            object.__setattr__(self, "base_url", os.environ.get("ERRORSENSE_LLM_URL", DEFAULT_BASE_URL))
 
 
 def _build_prompt(signal: Signal, skill: Skill, categories: list[str], config: LLMConfig) -> str:
