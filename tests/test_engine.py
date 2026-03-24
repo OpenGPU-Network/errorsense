@@ -25,7 +25,7 @@ class BrokenRuleset(Ruleset):
 class TestExplicitMode:
     def test_first_match_wins(self):
         engine = ErrorSense(
-            categories=["a", "b"],
+            labels=["a", "b"],
             pipeline=[Phase("p1", rulesets=[AlwaysMatchRuleset("a"), AlwaysMatchRuleset("b")])],
         )
         results = engine.classify(Signal({"x": 1}))
@@ -34,7 +34,7 @@ class TestExplicitMode:
 
     def test_skip_none_results(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[NeverMatchRuleset(), AlwaysMatchRuleset("a")])],
         )
         results = engine.classify(Signal({"x": 1}))
@@ -42,7 +42,7 @@ class TestExplicitMode:
 
     def test_default_when_no_match(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[NeverMatchRuleset()])],
             default="fallback",
         )
@@ -52,7 +52,7 @@ class TestExplicitMode:
 
     def test_skill_name_auto_filled(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[AlwaysMatchRuleset("a")])],
         )
         results = engine.classify(Signal({"x": 1}))
@@ -61,7 +61,7 @@ class TestExplicitMode:
 
     def test_broken_ruleset_skipped(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[BrokenRuleset(), AlwaysMatchRuleset("a")])],
         )
         results = engine.classify(Signal({"x": 1}))
@@ -69,7 +69,7 @@ class TestExplicitMode:
 
     def test_all_broken_falls_to_default(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[BrokenRuleset()])],
             default="oops",
         )
@@ -78,7 +78,7 @@ class TestExplicitMode:
 
     def test_multi_phase_first_catch(self):
         engine = ErrorSense(
-            categories=["a", "b"],
+            labels=["a", "b"],
             pipeline=[
                 Phase("first", rulesets=[NeverMatchRuleset()]),
                 Phase("second", rulesets=[AlwaysMatchRuleset("b")]),
@@ -90,7 +90,7 @@ class TestExplicitMode:
 
     def test_skip_phase(self):
         engine = ErrorSense(
-            categories=["a", "b"],
+            labels=["a", "b"],
             pipeline=[
                 Phase("skip_me", rulesets=[AlwaysMatchRuleset("a")]),
                 Phase("use_me", rulesets=[AlwaysMatchRuleset("b")]),
@@ -101,7 +101,7 @@ class TestExplicitMode:
 
     def test_skip_invalid_phase_raises(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[AlwaysMatchRuleset("a")])],
         )
         with pytest.raises(ValueError, match="Unknown phase"):
@@ -110,7 +110,7 @@ class TestExplicitMode:
     def test_duplicate_phase_names_rejected(self):
         with pytest.raises(ValueError, match="Duplicate"):
             ErrorSense(
-                categories=["a"],
+                labels=["a"],
                 pipeline=[
                     Phase("p1", rulesets=[AlwaysMatchRuleset("a")]),
                     Phase("p1", rulesets=[AlwaysMatchRuleset("a")]),
@@ -121,7 +121,7 @@ class TestExplicitMode:
 class TestShortCircuit:
     def test_short_circuit_true_returns_one(self):
         engine = ErrorSense(
-            categories=["a", "b"],
+            labels=["a", "b"],
             pipeline=[
                 Phase("first", rulesets=[AlwaysMatchRuleset("a")]),
                 Phase("second", rulesets=[AlwaysMatchRuleset("b")]),
@@ -133,7 +133,7 @@ class TestShortCircuit:
 
     def test_short_circuit_false_returns_all_matches(self):
         engine = ErrorSense(
-            categories=["a", "b"],
+            labels=["a", "b"],
             pipeline=[
                 Phase("first", rulesets=[AlwaysMatchRuleset("a", confidence=0.8)]),
                 Phase("second", rulesets=[AlwaysMatchRuleset("b", confidence=0.9)]),
@@ -146,7 +146,7 @@ class TestShortCircuit:
 
     def test_short_circuit_false_skips_unmatched(self):
         engine = ErrorSense(
-            categories=["a", "b"],
+            labels=["a", "b"],
             pipeline=[
                 Phase("first", rulesets=[AlwaysMatchRuleset("a")]),
                 Phase("second", rulesets=[NeverMatchRuleset()]),
@@ -160,7 +160,7 @@ class TestShortCircuit:
 
     def test_short_circuit_false_no_matches_default(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[NeverMatchRuleset()])],
             default="none",
         )
@@ -172,7 +172,7 @@ class TestShortCircuit:
 class TestImplicitMode:
     def test_rulesets_only(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             rulesets=[AlwaysMatchRuleset("a")],
         )
         results = engine.classify(Signal({"x": 1}))
@@ -181,7 +181,7 @@ class TestImplicitMode:
 
     def test_default_when_no_match(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             rulesets=[NeverMatchRuleset()],
             default="none",
         )
@@ -191,21 +191,21 @@ class TestImplicitMode:
     def test_cannot_mix_modes(self):
         with pytest.raises(ValueError, match="Cannot mix"):
             ErrorSense(
-                categories=["a"],
+                labels=["a"],
                 pipeline=[Phase("p1", rulesets=[AlwaysMatchRuleset("a")])],
                 rulesets=[AlwaysMatchRuleset("a")],
             )
 
     def test_must_provide_something(self):
         with pytest.raises(ValueError, match="Must provide"):
-            ErrorSense(categories=["a"])
+            ErrorSense(labels=["a"])
 
 
 class TestCallbacks:
     def test_on_classify_callback(self):
         collected = []
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[AlwaysMatchRuleset("a")])],
             on_classify=lambda sig, res: collected.append(res),
         )
@@ -215,7 +215,7 @@ class TestCallbacks:
 
     def test_on_error_callback(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[
                 Phase("broken", rulesets=[BrokenRuleset()]),
                 Phase("ok", rulesets=[AlwaysMatchRuleset("a")]),
@@ -230,7 +230,7 @@ class TestLabelValidation:
     def test_invalid_label_in_ruleset(self):
         with pytest.raises(ValueError, match="not in"):
             ErrorSense(
-                categories=["a", "b"],
+                labels=["a", "b"],
                 pipeline=[Phase("p1", rulesets=[
                     Ruleset(field="x", match={1: "c"}),
                 ])],
@@ -241,7 +241,7 @@ class TestAsyncClassify:
     @pytest.mark.asyncio
     async def test_async_classify_first_catch(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[NeverMatchRuleset(), AlwaysMatchRuleset("a")])],
         )
         results = await engine.async_classify(Signal({"x": 1}))
@@ -250,7 +250,7 @@ class TestAsyncClassify:
     @pytest.mark.asyncio
     async def test_async_classify_default(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[NeverMatchRuleset()])],
             default="fallback",
         )
@@ -260,7 +260,7 @@ class TestAsyncClassify:
     @pytest.mark.asyncio
     async def test_async_classify_broken_skipped(self):
         engine = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[BrokenRuleset(), AlwaysMatchRuleset("a")])],
         )
         results = await engine.async_classify(Signal({"x": 1}))
@@ -269,7 +269,7 @@ class TestAsyncClassify:
     @pytest.mark.asyncio
     async def test_async_classify_all_phases(self):
         engine = ErrorSense(
-            categories=["a", "b"],
+            labels=["a", "b"],
             pipeline=[
                 Phase("first", rulesets=[AlwaysMatchRuleset("a", confidence=0.5)]),
                 Phase("second", rulesets=[AlwaysMatchRuleset("b", confidence=0.9)]),

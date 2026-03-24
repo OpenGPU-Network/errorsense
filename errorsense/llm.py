@@ -22,7 +22,7 @@ DEFAULT_BASE_URL = "https://relay.opengpu.network/v2/openai/v1"
 DEFAULT_MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
 DEFAULT_PROMPT_TEMPLATE = (
     "{instructions}\n\n"
-    "Classify the following error signal into exactly one of these categories: {categories}\n\n"
+    "Classify the following error signal into exactly one of these labels: {labels}\n\n"
     "Signal data:\n{signal}\n\n"
     'Reply ONLY with JSON: {{"label": "...", "confidence": 0.0, "reason": "..."}}'
 )
@@ -54,7 +54,7 @@ class LLMConfig:
             object.__setattr__(self, "base_url", os.environ.get("ERRORSENSE_LLM_URL", DEFAULT_BASE_URL))
 
 
-def _build_prompt(signal: Signal, skill: Skill, categories: list[str], config: LLMConfig) -> str:
+def _build_prompt(signal: Signal, skill: Skill, labels: list[str], config: LLMConfig) -> str:
     signal_text = json.dumps(signal.to_dict(), default=str)
     if len(signal_text) > config.max_signal_size:
         signal_text = signal_text[: config.max_signal_size] + "..."
@@ -62,7 +62,7 @@ def _build_prompt(signal: Signal, skill: Skill, categories: list[str], config: L
     template = skill.prompt_template or DEFAULT_PROMPT_TEMPLATE
     return template.format(
         instructions=skill.instructions,
-        categories=", ".join(categories) if categories else "unknown",
+        labels=", ".join(labels) if labels else "unknown",
         signal=signal_text,
     )
 
@@ -84,7 +84,7 @@ def _build_headers(config: LLMConfig) -> dict:
 
 def _parse_response(
     data: dict,
-    categories: list[str],
+    labels: list[str],
     skill_name: str,
     include_reason: bool = False,
 ) -> SenseResult | None:
@@ -96,11 +96,11 @@ def _parse_response(
             content = content.rsplit("```", 1)[0]
         parsed = json.loads(content.strip())
 
-        label = parsed.get("label", "") or parsed.get("category", "")
+        label = parsed.get("label", "")
         confidence = min(1.0, max(0.0, float(parsed.get("confidence", 0.7))))
         reason = parsed.get("reason") if include_reason else None
 
-        if categories and label not in categories:
+        if labels and label not in labels:
             logger.warning(
                 "Skill %r: LLM returned unknown label %r", skill_name, label
             )
@@ -154,19 +154,18 @@ class LLMClient:
         self,
         signal: Signal,
         skill: Skill,
-        categories: list[str],
+        labels: list[str],
         include_reason: bool = False,
     ) -> SenseResult | None:
-        config = skill.llm if skill.llm is not None else self._config
-        prompt = _build_prompt(signal, skill, categories, config)
-        url = f"{config.base_url.rstrip('/')}/chat/completions"
+        prompt = _build_prompt(signal, skill, labels, self._config)
+        url = f"{self._config.base_url.rstrip('/')}/chat/completions"
 
         try:
             client = self._get_sync_client()
             resp = client.post(
                 url,
-                headers=_build_headers(config),
-                json=_build_request_body(skill, prompt, config),
+                headers=_build_headers(self._config),
+                json=_build_request_body(skill, prompt, self._config),
             )
             resp.raise_for_status()
             data = resp.json()
@@ -174,25 +173,24 @@ class LLMClient:
             logger.warning("LLM call failed for skill %r: %s", skill.name, e)
             return None
 
-        return _parse_response(data, categories, skill.name, include_reason)
+        return _parse_response(data, labels, skill.name, include_reason)
 
     async def classify_async(
         self,
         signal: Signal,
         skill: Skill,
-        categories: list[str],
+        labels: list[str],
         include_reason: bool = False,
     ) -> SenseResult | None:
-        config = skill.llm if skill.llm is not None else self._config
-        prompt = _build_prompt(signal, skill, categories, config)
-        url = f"{config.base_url.rstrip('/')}/chat/completions"
+        prompt = _build_prompt(signal, skill, labels, self._config)
+        url = f"{self._config.base_url.rstrip('/')}/chat/completions"
 
         try:
             client = await self._get_async_client()
             resp = await client.post(
                 url,
-                headers=_build_headers(config),
-                json=_build_request_body(skill, prompt, config),
+                headers=_build_headers(self._config),
+                json=_build_request_body(skill, prompt, self._config),
             )
             resp.raise_for_status()
             data = resp.json()
@@ -200,7 +198,7 @@ class LLMClient:
             logger.warning("LLM call failed for skill %r: %s", skill.name, e)
             return None
 
-        return _parse_response(data, categories, skill.name, include_reason)
+        return _parse_response(data, labels, skill.name, include_reason)
 
     def close_sync(self) -> None:
         if self._sync_client is not None:

@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from errorsense.llm import LLMConfig
 
 __all__ = ["Skill"]
 
@@ -29,7 +25,6 @@ class Skill:
         instructions: Inline instructions string. Overrides file loading.
         prompt_template: Override the default LLM prompt template.
         temperature: LLM temperature (default: 0.0 for determinism).
-        llm: Per-skill LLMConfig override.
     """
 
     def __init__(
@@ -39,7 +34,6 @@ class Skill:
         instructions: str | None = None,
         prompt_template: str | None = None,
         temperature: float = 0.0,
-        llm: LLMConfig | None = None,
     ) -> None:
         if not name:
             raise ValueError("Skill requires a non-empty 'name'")
@@ -47,7 +41,6 @@ class Skill:
         self.name = name
         self.prompt_template = prompt_template
         self.temperature = temperature
-        self.llm = llm
 
         if instructions:
             self.instructions = instructions

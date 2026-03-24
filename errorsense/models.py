@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from errorsense.llm import LLMConfig
+    from errorsense.skill import Skill
 
 
 @dataclass(frozen=True)
@@ -40,13 +44,12 @@ class TrailingConfig:
         threshold: Number of counted errors before review triggers.
         count_labels: Only these labels count toward threshold.
         history_size: Max errors kept per key (ring buffer).
-        review: Whether to LLM-review history when threshold hit.
-            None = auto (True if LLM phase exists, False if not).
-            True = force (raises if no LLM phase).
-            False = never.
+        reviewer_llm: LLM config for review. Set to enable review, None to disable.
+        reviewer_skill: Custom review skill. Defaults to built-in reclassification.
     """
 
     threshold: int = 3
     count_labels: list[str] | None = None
     history_size: int = 10
-    review: bool | None = None
+    reviewer_llm: LLMConfig | None = None
+    reviewer_skill: Skill | None = None

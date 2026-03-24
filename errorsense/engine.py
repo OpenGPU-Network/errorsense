@@ -10,7 +10,7 @@ import time
 from collections import defaultdict, deque
 from typing import Any, Callable
 
-from errorsense.llm import LLMConfig
+from errorsense.llm import LLMClient, LLMConfig
 from errorsense.models import SenseResult, TrailResult, TrailingConfig
 from errorsense.phase import Phase
 from errorsense.ruleset import Ruleset
@@ -31,7 +31,7 @@ class ErrorSense:
 
     def __init__(
         self,
-        categories: list[str],
+        labels: list[str],
         # Explicit mode
         pipeline: list[Phase] | None = None,
         # Implicit mode
@@ -44,7 +44,7 @@ class ErrorSense:
         on_classify: Callable[[Signal, SenseResult], Any] | None = None,
         on_error: Callable[[str, Exception], Any] | None = None,
     ) -> None:
-        self.categories = set(categories)
+        self.labels = set(labels)
         self.default = default
         self._on_classify = on_classify
         self._on_error = on_error
@@ -60,26 +60,22 @@ class ErrorSense:
 
         self._validate_phase_names()
         self._pipeline_names = frozenset(p.name for p in self._pipeline)
-        self._validate_categories()
+        self._validate_labels()
         self._validate_llm_api_keys()
         for phase in self._pipeline:
-            phase.set_categories(list(categories))
+            phase.set_labels(list(labels))
 
         # Trailing state
         self._trailing = trailing
-        self._has_llm = any(p.is_llm_phase for p in self._pipeline)
-        self._reclass_skill: Skill | None = None
+        self._reviewer_client: LLMClient | None = None
+        self._reviewer_skill: Skill | None = None
         if trailing:
             self._init_trailing(trailing)
 
     def _init_trailing(self, config: TrailingConfig) -> None:
-        if config.review is True and not self._has_llm:
-            raise ValueError(
-                "TrailingConfig(review=True) requires an LLM phase in the pipeline."
-            )
-        self._review_enabled = (
-            config.review if config.review is not None else self._has_llm
-        )
+        if config.reviewer_llm is not None:
+            self._reviewer_client = LLMClient(config.reviewer_llm)
+            self._reviewer_skill = config.reviewer_skill
         self._threshold = config.threshold
         self._count_labels = set(config.count_labels or [])
         hs = config.history_size
@@ -106,11 +102,15 @@ class ErrorSense:
         """Close all LLM phase clients (sync)."""
         for phase in self._pipeline:
             phase.close_sync()
+        if self._reviewer_client:
+            self._reviewer_client.close_sync()
 
     async def async_close(self) -> None:
         """Close all LLM phase clients (async)."""
         for phase in self._pipeline:
             await phase.close_async()
+        if self._reviewer_client:
+            await self._reviewer_client.close_async()
 
     async def __aenter__(self) -> ErrorSense:
         return self
@@ -204,7 +204,7 @@ class ErrorSense:
             at_threshold = self._record_and_check(key, signal, result)
             review_result = (
                 self._run_review_sync(key)
-                if at_threshold and self._review_enabled else None
+                if at_threshold and self._reviewer_client else None
             )
             return self._build_trail_result(key, result, at_threshold, review_result)
 
@@ -224,16 +224,24 @@ class ErrorSense:
             at_threshold = self._record_and_check(key, signal, result)
             review_result = (
                 await self._run_review_async(key)
-                if at_threshold and self._review_enabled else None
+                if at_threshold and self._reviewer_client else None
             )
             return self._build_trail_result(key, result, at_threshold, review_result)
 
     def review(self, key: str) -> SenseResult | None:
         """Manually review full history for a key (sync). Returns LLM verdict."""
+        if not self._trailing:
+            raise RuntimeError(
+                "Trailing not configured. Pass trailing=TrailingConfig(...) to ErrorSense."
+            )
         return self._run_review_sync(key)
 
     async def async_review(self, key: str) -> SenseResult | None:
         """Manually review full history for a key (async). Returns LLM verdict."""
+        if not self._trailing:
+            raise RuntimeError(
+                "Trailing not configured. Pass trailing=TrailingConfig(...) to ErrorSense."
+            )
         return self._run_review_async(key)
 
     def _record_and_check(self, key: str, signal: Signal, result: SenseResult) -> bool:
@@ -297,37 +305,33 @@ class ErrorSense:
             self._counts[key][new_label] += 1
 
     def _run_review_sync(self, key: str) -> SenseResult | None:
-        llm_phase = self._find_llm_phase()
-        if not llm_phase:
+        if not self._reviewer_client:
             return None
         signal, skill = self._build_review_context(key)
         try:
-            return llm_phase.run_llm_call(signal, skill, list(self.categories))
+            return self._reviewer_client.classify_sync(
+                signal, skill, list(self.labels), include_reason=True,
+            )
         except Exception as e:
             logger.warning("LLM review failed: %s", e)
             return None
 
     async def _run_review_async(self, key: str) -> SenseResult | None:
-        llm_phase = self._find_llm_phase()
-        if not llm_phase:
+        if not self._reviewer_client:
             return None
         signal, skill = self._build_review_context(key)
         try:
-            return await llm_phase.async_run_llm_call(signal, skill, list(self.categories))
+            return await self._reviewer_client.classify_async(
+                signal, skill, list(self.labels), include_reason=True,
+            )
         except Exception as e:
             logger.warning("LLM review failed: %s", e)
             return None
 
-    def _find_llm_phase(self) -> Phase | None:
-        for phase in self._pipeline:
-            if phase.is_llm_phase:
-                return phase
-        return None
-
-    def _get_reclass_skill(self) -> Skill:
-        if self._reclass_skill is None:
-            self._reclass_skill = Skill("reclassification")
-        return self._reclass_skill
+    def _get_reviewer_skill(self) -> Skill:
+        if self._reviewer_skill is None:
+            self._reviewer_skill = Skill("reclassification")
+        return self._reviewer_skill
 
     def _build_review_context(self, key: str) -> tuple[Signal, Skill]:
         history = list(self._history[key])
@@ -341,7 +345,7 @@ class ErrorSense:
             "key": key,
             "history_summary": summary,
         })
-        return signal, self._get_reclass_skill()
+        return signal, self._get_reviewer_skill()
 
     def reset(self, key: str) -> None:
         """Clear trailing history and counts for a key."""
@@ -395,15 +399,15 @@ class ErrorSense:
                 raise ValueError(f"Duplicate phase name: {phase.name!r}")
             seen.add(phase.name)
 
-    def _validate_categories(self) -> None:
-        all_cats = self.categories | {self.default}
+    def _validate_labels(self) -> None:
+        all_labels = self.labels | {self.default}
         for phase in self._pipeline:
             for ruleset in phase.rulesets:
-                bad = ruleset.referenced_labels() - all_cats
+                bad = ruleset.referenced_labels() - all_labels
                 if bad:
                     raise ValueError(
                         f"Ruleset on field {getattr(ruleset, 'field', '?')!r} maps to "
-                        f"label {bad.pop()!r} not in {sorted(self.categories)}"
+                        f"label {bad.pop()!r} not in {sorted(self.labels)}"
                     )
 
     def _validate_llm_api_keys(self) -> None:

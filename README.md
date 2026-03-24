@@ -33,7 +33,7 @@ results = sense.classify(Signal.from_http(status_code=500, body="model not found
 results[0].label  # "client" (LLM figured it out)
 ```
 
-The `http` preset gives you a 3-phase pipeline (rules → patterns → LLM) with 3 categories: `"client"`, `"server"`, `"undecided"`. Rulesets handle obvious cases instantly. LLM handles the ambiguous ones.
+The `http` preset gives you a 3-phase pipeline (rules → patterns → LLM) with 3 labels: `"client"`, `"server"`, `"undecided"`. Rulesets handle obvious cases instantly. LLM handles the ambiguous ones.
 
 Don't want LLM? Use `http_no_llm()` — rulesets only, ambiguous errors come back as `"undecided"`.
 
@@ -46,7 +46,7 @@ from errorsense import ErrorSense, Phase, Ruleset, Skill, LLMConfig, Signal
 
 # Rulesets + LLM
 sense = ErrorSense(
-    categories=["transient", "permanent", "user"],
+    labels=["transient", "permanent", "user"],
     pipeline=[
         Phase("codes", rulesets=[
             Ruleset(field="error_code", match={
@@ -68,7 +68,7 @@ sense = ErrorSense(
 
 # Rulesets only — no LLM needed
 sense = ErrorSense(
-    categories=["client", "server"],
+    labels=["client", "server"],
     pipeline=[
         Phase("rules", rulesets=[
             Ruleset(field="status_code", match={"4xx": "client", 502: "server"}),
@@ -79,7 +79,7 @@ sense = ErrorSense(
 
 # LLM only — skip rulesets entirely
 sense = ErrorSense(
-    categories=["client", "server"],
+    labels=["client", "server"],
     pipeline=[
         Phase("llm", skills=[
             Skill("my_classifier", path="./skills/my_classifier.md"),
@@ -141,19 +141,24 @@ results[0].reason  # "ECONNRESET indicates transient network failure"
 
 ## Trailing (Stateful Error Tracking)
 
-Track errors per key. When a threshold is hit, the LLM reviews the full error history.
+Track errors per key. When a threshold is hit, optionally have an LLM review the full error history.
 
 ```python
-from errorsense import TrailingConfig
+from errorsense import LLMConfig, TrailingConfig
 
+# With LLM review at threshold
 sense = ErrorSense(
-    categories=["transient", "permanent", "user"],
+    labels=["transient", "permanent", "user"],
     pipeline=[...],
     trailing=TrailingConfig(
         threshold=3,
         count_labels=["transient", "permanent"],  # user errors don't count
+        reviewer_llm=LLMConfig(),                 # enables LLM review
     ),
 )
+
+# Without LLM review (just counting)
+trailing=TrailingConfig(threshold=3, count_labels=["transient", "permanent"])
 
 # In your error handler:
 result = sense.trail("service-a", signal)
@@ -168,9 +173,9 @@ sense.reset("service-a")
 **How it works:**
 - Each `trail()` call classifies the signal normally through the pipeline
 - Counted labels accumulate per key toward the threshold
-- At threshold, the LLM reviews all recorded errors and gives its verdict
+- At threshold, the LLM reviews all recorded errors (if `reviewer_llm` is set)
 - If the review changes the label, the history entry is corrected and the count adjusts
-- `review=False` in TrailingConfig disables LLM review (just counting)
+- `reviewer_skill=Skill(...)` lets you override the default review instructions
 
 **Manual review anytime:**
 

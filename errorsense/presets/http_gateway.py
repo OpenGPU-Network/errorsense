@@ -48,7 +48,7 @@ def http(
     phases.append(Phase("llm", skills=[Skill("http_classifier")], llm=llm))
 
     return ErrorSense(
-        categories=["client", "server", "undecided"],
+        labels=["client", "server", "undecided"],
         pipeline=phases,
         default="undecided",
     )
@@ -66,7 +66,7 @@ def http_no_llm(
         extra_rulesets: Additional rulesets appended to the patterns phase.
     """
     return ErrorSense(
-        categories=["client", "server", "undecided"],
+        labels=["client", "server", "undecided"],
         pipeline=_ruleset_phases(extra_rulesets),
         default="undecided",
     )

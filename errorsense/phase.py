@@ -61,14 +61,14 @@ class Phase:
         self.skills = skills or []
         self.llm = llm
         self.is_llm_phase = has_skills
-        self._categories: list[str] = []
+        self._labels: list[str] = []
         self._llm_client: LLMClient | None = None
 
         if self.is_llm_phase and llm:
             self._llm_client = LLMClient(llm)
 
-    def set_categories(self, categories: list[str]) -> None:
-        self._categories = list(categories)
+    def set_labels(self, labels: list[str]) -> None:
+        self._labels = list(labels)
 
     def classify(self, signal: Signal, explain: bool = False) -> SenseResult | None:
         """Sync classification. Full pipeline — rulesets or LLM."""
@@ -136,38 +136,10 @@ class Phase:
         return best
 
     def _run_one_skill_sync(self, signal: Signal, skill: Skill, explain: bool) -> SenseResult | None:
-        if skill.llm is not None:
-            client = LLMClient(skill.llm)
-            try:
-                return client.classify_sync(signal, skill, self._categories, include_reason=explain)
-            finally:
-                client.close_sync()
-        return self._llm_client.classify_sync(signal, skill, self._categories, include_reason=explain)
+        return self._llm_client.classify_sync(signal, skill, self._labels, include_reason=explain)
 
     async def _run_one_skill_async(self, signal: Signal, skill: Skill, explain: bool) -> SenseResult | None:
-        if skill.llm is not None:
-            client = LLMClient(skill.llm)
-            try:
-                return await client.classify_async(signal, skill, self._categories, include_reason=explain)
-            finally:
-                await client.close_async()
-        return await self._llm_client.classify_async(signal, skill, self._categories, include_reason=explain)
-
-    def run_llm_call(
-        self, signal: Signal, skill: Skill, categories: list[str],
-    ) -> SenseResult | None:
-        """Run a single sync LLM call. Public API for Tracker reclassification."""
-        if not self._llm_client:
-            return None
-        return self._llm_client.classify_sync(signal, skill, categories, include_reason=True)
-
-    async def async_run_llm_call(
-        self, signal: Signal, skill: Skill, categories: list[str],
-    ) -> SenseResult | None:
-        """Run a single async LLM call. Public API for Tracker reclassification."""
-        if not self._llm_client:
-            return None
-        return await self._llm_client.classify_async(signal, skill, categories, include_reason=True)
+        return await self._llm_client.classify_async(signal, skill, self._labels, include_reason=explain)
 
     def _stamp_phase(self, result: SenseResult, skill_name: str) -> SenseResult:
         updates: dict[str, Any] = {}

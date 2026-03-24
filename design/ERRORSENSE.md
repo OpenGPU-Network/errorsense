@@ -104,7 +104,7 @@ Runs signals through a pipeline of phases.
 from errorsense import ErrorSense, Phase, Ruleset, Skill, LLMConfig
 
 sense = ErrorSense(
-    categories=["client", "server", "undecided"],
+    labels=["client", "server", "undecided"],
     pipeline=[
         Phase("rules", rulesets=[...]),
         Phase("patterns", rulesets=[...]),
@@ -118,7 +118,7 @@ sense = ErrorSense(
 
 ```python
 sense = ErrorSense(
-    categories=["client", "server"],
+    labels=["client", "server"],
     rulesets=[Ruleset(...)],
     skills=[Skill(...)],
     llm=LLMConfig(...),
@@ -160,13 +160,14 @@ Track errors per key with threshold-based LLM review.
 from errorsense import TrailingConfig
 
 sense = ErrorSense(
-    categories=["client", "server", "undecided"],
+    labels=["client", "server", "undecided"],
     pipeline=[...],
     trailing=TrailingConfig(
         threshold=3,
         count_labels=["server"],
         history_size=10,
-        review=None,  # None=auto, True=force, False=never
+        reviewer_llm=LLMConfig(),          # enables LLM review at threshold
+        reviewer_skill=Skill("custom"),     # optional, defaults to built-in reclassification.md
     ),
 )
 
@@ -187,9 +188,9 @@ sense.reset("service-a")
 5. `at_threshold` recalculates after any correction
 
 **Review behavior:**
-- `review=None` (default): auto-review if an LLM phase exists
-- `review=True`: force review (raises if no LLM phase)
-- `review=False`: never review, just count
+- `reviewer_llm=LLMConfig(...)`: LLM reviews error history at threshold
+- `reviewer_llm=None` (default): no review, just count
+- `reviewer_skill=Skill(...)`: override the default review instructions
 
 **Manual review:** `sense.review(key)` / `await sense.async_review(key)` — LLM reviews full history anytime.
 
@@ -222,7 +223,8 @@ class TrailingConfig:
     threshold: int = 3
     count_labels: list[str] | None = None
     history_size: int = 10
-    review: bool | None = None
+    reviewer_llm: LLMConfig | None = None
+    reviewer_skill: Skill | None = None
 ```
 
 ---
@@ -260,7 +262,7 @@ Every `classify()` call is wrapped in try/except at the phase level. Exceptions 
 
 ### Validation (at construction)
 
-- Labels in rulesets must be in `categories` or `default`
+- Labels in rulesets must be in `labels` or `default`
 - Phases must have rulesets OR (skills + llm)
 - LLM phases must have an API key in LLMConfig
 - `pipeline=` and `rulesets=/skills=` cannot be mixed

@@ -8,7 +8,7 @@ from errorsense import ErrorSense, Phase, Ruleset, Signal, TrailingConfig
 def make_sense(**kwargs):
     """Helper to build an ErrorSense with trailing enabled."""
     defaults = {
-        "categories": ["infra", "provider", "user"],
+        "labels": ["infra", "provider", "user"],
         "pipeline": [
             Phase("rules", rulesets=[
                 Ruleset(field="status_code", match={400: "user", 401: "user", 502: "infra", 503: "infra"}),
@@ -111,21 +111,16 @@ class TestTrail:
 
     def test_trail_without_config_raises(self):
         sense = ErrorSense(
-            categories=["a"],
+            labels=["a"],
             pipeline=[Phase("p1", rulesets=[Ruleset(field="x", match={1: "a"})])],
         )
         with pytest.raises(RuntimeError, match="Trailing not configured"):
             sense.trail("key", Signal({"x": 1}))
 
-    def test_review_true_without_llm_raises(self):
-        with pytest.raises(ValueError, match="requires an LLM phase"):
-            make_sense(trailing=TrailingConfig(
-                threshold=3, count_labels=["infra"], review=True,
-            ))
-
-    def test_review_false_no_review(self):
+    def test_no_reviewer_llm_no_review(self):
+        """Without reviewer_llm, trailing just counts — no LLM review."""
         sense = make_sense(trailing=TrailingConfig(
-            threshold=2, count_labels=["infra", "provider"], review=False,
+            threshold=2, count_labels=["infra", "provider"],
         ))
         sense.trail("p1", Signal.from_http(status_code=502))
         result = sense.trail("p1", Signal.from_http(status_code=502))
