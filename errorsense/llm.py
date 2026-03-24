@@ -10,6 +10,11 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+try:
+    import httpx
+except ImportError:
+    httpx = None  # type: ignore[assignment]
+
 from errorsense.models import SenseResult
 from errorsense.signal import Signal
 from errorsense.skill import Skill
@@ -20,7 +25,7 @@ __all__ = ["LLMConfig", "LLMClient"]
 
 DEFAULT_BASE_URL = "https://relay.opengpu.network/v2/openai/v1"
 DEFAULT_MODEL = "Qwen/Qwen3.5-397B-A17B-FP8"
-DEFAULT_PROMPT_TEMPLATE = (
+DEFAULT_PROMPT_FORMAT = (
     "{instructions}\n\n"
     "Classify the following error signal into exactly one of these labels: {labels}\n\n"
     "Signal data:\n{signal}\n\n"
@@ -57,9 +62,9 @@ class LLMConfig:
 def _build_prompt(signal: Signal, skill: Skill, labels: list[str], config: LLMConfig) -> str:
     signal_text = json.dumps(signal.to_dict(), default=str)
     if len(signal_text) > config.max_signal_size:
-        signal_text = signal_text[: config.max_signal_size] + "..."
+        signal_text = signal_text[: config.max_signal_size] + "...(truncated)"
 
-    template = skill.prompt_template or DEFAULT_PROMPT_TEMPLATE
+    template = skill.prompt_format or DEFAULT_PROMPT_FORMAT
     return template.format(
         instructions=skill.instructions,
         labels=", ".join(labels) if labels else "unknown",
@@ -76,6 +81,7 @@ def _build_request_body(skill: Skill, prompt: str, config: LLMConfig) -> dict:
 
 
 def _build_headers(config: LLMConfig) -> dict:
+    # Empty api_key sends "Bearer " — relay accepts this for guest tier.
     return {
         "Authorization": f"Bearer {config.api_key}",
         "Content-Type": "application/json",
@@ -121,12 +127,10 @@ class LLMClient:
     """HTTP client for LLM classification calls. Supports both sync and async."""
 
     def __init__(self, config: LLMConfig) -> None:
-        try:
-            import httpx  # noqa: F401
-        except ImportError:
+        if httpx is None:
             raise ImportError(
                 "LLM skills require httpx. Install with: pip install errorsense[llm]"
-            ) from None
+            )
 
         self._config = config
         self._sync_client: Any = None
@@ -135,16 +139,12 @@ class LLMClient:
         self._async_lock = asyncio.Lock()
 
     def _get_sync_client(self) -> Any:
-        import httpx
-
         with self._sync_lock:
             if self._sync_client is None:
                 self._sync_client = httpx.Client(timeout=self._config.timeout)
             return self._sync_client
 
     async def _get_async_client(self) -> Any:
-        import httpx
-
         async with self._async_lock:
             if self._async_client is None:
                 self._async_client = httpx.AsyncClient(timeout=self._config.timeout)
@@ -169,7 +169,7 @@ class LLMClient:
             )
             resp.raise_for_status()
             data = resp.json()
-        except (OSError, ValueError, KeyError, TypeError) as e:
+        except (httpx.HTTPError, ValueError) as e:
             logger.warning("LLM call failed for skill %r: %s", skill.name, e)
             return None
 
@@ -194,7 +194,7 @@ class LLMClient:
             )
             resp.raise_for_status()
             data = resp.json()
-        except (OSError, ValueError, KeyError, TypeError) as e:
+        except (httpx.HTTPError, ValueError) as e:
             logger.warning("LLM call failed for skill %r: %s", skill.name, e)
             return None
 

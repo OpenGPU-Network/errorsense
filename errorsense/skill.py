@@ -23,7 +23,7 @@ class Skill:
               in the built-in skills directory.
         path: Explicit path to a .md file. Overrides built-in lookup.
         instructions: Inline instructions string. Overrides file loading.
-        prompt_template: Override the default LLM prompt template.
+        prompt_format: Override the default LLM prompt format.
         temperature: LLM temperature (default: 0.0 for determinism).
     """
 
@@ -32,14 +32,14 @@ class Skill:
         name: str,
         path: str | Path | None = None,
         instructions: str | None = None,
-        prompt_template: str | None = None,
+        prompt_format: str | None = None,
         temperature: float = 0.0,
     ) -> None:
         if not name:
             raise ValueError("Skill requires a non-empty 'name'")
 
         self.name = name
-        self.prompt_template = prompt_template
+        self.prompt_format = prompt_format
         self.temperature = temperature
 
         if instructions:

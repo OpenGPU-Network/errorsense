@@ -44,7 +44,7 @@ class ErrorSense:
         on_classify: Callable[[Signal, SenseResult], Any] | None = None,
         on_error: Callable[[str, Exception], Any] | None = None,
     ) -> None:
-        self.labels = set(labels)
+        self.labels = tuple(labels)
         self.default = default
         self._on_classify = on_classify
         self._on_error = on_error
@@ -63,7 +63,7 @@ class ErrorSense:
         self._validate_labels()
         self._validate_llm_api_keys()
         for phase in self._pipeline:
-            phase.set_labels(list(labels))
+            phase.set_labels(self.labels)
 
         # Trailing state
         self._trailing = trailing
@@ -99,7 +99,10 @@ class ErrorSense:
         return None
 
     def close(self) -> None:
-        """Close all LLM phase clients (sync)."""
+        """Close all LLM phase clients (sync).
+
+        Not thread-safe with in-flight classify/trail calls.
+        """
         for phase in self._pipeline:
             phase.close_sync()
         if self._reviewer_client:
@@ -310,7 +313,7 @@ class ErrorSense:
         signal, skill = self._build_review_context(key)
         try:
             return self._reviewer_client.classify_sync(
-                signal, skill, list(self.labels), include_reason=True,
+                signal, skill, self.labels, include_reason=True,
             )
         except Exception as e:
             logger.warning("LLM review failed: %s", e)
@@ -322,7 +325,7 @@ class ErrorSense:
         signal, skill = self._build_review_context(key)
         try:
             return await self._reviewer_client.classify_async(
-                signal, skill, list(self.labels), include_reason=True,
+                signal, skill, self.labels, include_reason=True,
             )
         except Exception as e:
             logger.warning("LLM review failed: %s", e)
@@ -400,7 +403,7 @@ class ErrorSense:
             seen.add(phase.name)
 
     def _validate_labels(self) -> None:
-        all_labels = self.labels | {self.default}
+        all_labels = set(self.labels) | {self.default}
         for phase in self._pipeline:
             for ruleset in phase.rulesets:
                 bad = ruleset.referenced_labels() - all_labels

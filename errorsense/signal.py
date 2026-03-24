@@ -6,7 +6,11 @@ from typing import Any
 
 
 def _deep_freeze(obj: Any) -> Any:
-    """Recursively freeze dicts into MappingProxyType and lists into tuples."""
+    """Recursively freeze dicts into MappingProxyType and lists into tuples.
+
+    Note: lists become tuples. Code receiving signal data should check
+    for Sequence, not list specifically.
+    """
     if isinstance(obj, dict):
         return MappingProxyType({k: _deep_freeze(v) for k, v in obj.items()})
     if isinstance(obj, list):

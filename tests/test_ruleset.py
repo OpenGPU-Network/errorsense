@@ -57,14 +57,28 @@ class TestRangeMatch:
 
 
 class TestHeaderMatch:
-    def test_content_type_match(self):
+    def test_content_type_exact_match(self):
         rs = Ruleset(field="headers.content-type", match={"text/html": "infra"})
+        signal = Signal.from_http(status_code=500, body="<html>", headers={"content-type": "text/html"})
+        result = rs.classify(signal)
+        assert result.label == "infra"
+
+    def test_content_type_with_charset_no_match(self):
+        """Exact match: 'text/html' != 'text/html; charset=utf-8'. Use patterns for prefix matching."""
+        rs = Ruleset(field="headers.content-type", match={"text/html": "infra"})
+        signal = Signal.from_http(status_code=500, body="<html>", headers={"content-type": "text/html; charset=utf-8"})
+        result = rs.classify(signal)
+        assert result is None
+
+    def test_content_type_pattern_match(self):
+        """Use patterns= for prefix matching on content-type with charset."""
+        rs = Ruleset(field="headers.content-type", patterns=[("infra", [r"^text/html"])])
         signal = Signal.from_http(status_code=500, body="<html>", headers={"content-type": "text/html; charset=utf-8"})
         result = rs.classify(signal)
         assert result.label == "infra"
 
     def test_content_type_none_pass(self):
-        rs = Ruleset(field="headers.content-type", match={"application/json": None, "text/html": "infra"})
+        rs = Ruleset(field="headers.content-type", match={"application/json": None})
         signal = Signal.from_http(status_code=500, body="{}", headers={"content-type": "application/json"})
         result = rs.classify(signal)
         assert result is None

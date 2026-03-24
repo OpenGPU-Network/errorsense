@@ -18,9 +18,9 @@ def _ruleset_phases(extra_rulesets: list[Ruleset] | None = None) -> list[Phase]:
             Ruleset(field="status_code", match={
                 "4xx": "client", 502: "server", 503: "server", 504: "server",
             }),
-            Ruleset(field="headers.content-type", match={
-                "text/html": "server", "application/json": None,
-            }),
+            Ruleset(field="headers.content-type", patterns=[
+                ("server", [r"^text/html"]),
+            ]),
         ]),
         Phase("patterns", rulesets=[
             Ruleset(field="body", patterns=[

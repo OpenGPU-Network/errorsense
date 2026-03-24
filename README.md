@@ -93,13 +93,13 @@ Phases run in order. First match wins. Rulesets are instant and free. LLM is the
 
 ## Rulesets
 
-Each ruleset does one thing — `match=` for field matching or `patterns=` for regex:
+Each ruleset does one thing — `match=` for exact field matching or `patterns=` for regex:
 
 ```python
 Ruleset(field="status_code", match={400: "client", 502: "server"})         # exact match
 Ruleset(field="status_code", match={"4xx": "client", 503: "server"})       # range match
-Ruleset(field="headers.content-type", match={"text/html": "server"})       # header match
 Ruleset(field="body.error.type", match={"validation_error": "client"})     # JSON dot-path
+Ruleset(field="headers.content-type", patterns=[("server", [r"^text/html"])])  # regex
 Ruleset(field="body", patterns=[("server", [r"OOM"]), ("client", [r"invalid"])])  # regex
 ```
 
@@ -115,7 +115,7 @@ class VendorBugRuleset(Ruleset):
 
 ## Skills
 
-Skills are LLM instructions stored as `.md` files. Each skill teaches the LLM how to classify errors in a specific domain.
+Skills are LLM instructions stored as `.md` files. Each skill teaches the LLM how to classify errors in a specific domain. Each skill triggers a separate LLM call — highest confidence result wins.
 
 ```python
 # Loads from errorsense/skills/http_classifier.md (built-in)
@@ -124,6 +124,17 @@ Skill("http_classifier")
 # Loads from your own file
 Skill("my_classifier", path="./skills/my_classifier.md")
 ```
+
+**Multiple skills in one phase:** Use this when you want multiple domain-specific opinions on the same error.
+
+```python
+Phase("llm", skills=[
+    Skill("http_classifier"),    # knows HTTP error patterns
+    Skill("db_classifier"),      # knows database error patterns
+], llm=LLMConfig(...))
+```
+
+In sync (`classify`), skills run sequentially. In async (`async_classify`), skills run concurrently.
 
 ## All Phases Mode
 

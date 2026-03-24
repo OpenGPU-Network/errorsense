@@ -49,7 +49,11 @@ class TrailingConfig:
     """
 
     threshold: int = 3
-    count_labels: list[str] | None = None
+    count_labels: list[str] | tuple[str, ...] | None = None
     history_size: int = 10
     reviewer_llm: LLMConfig | None = None
     reviewer_skill: Skill | None = None
+
+    def __post_init__(self) -> None:
+        if self.count_labels is not None:
+            object.__setattr__(self, "count_labels", tuple(self.count_labels))

@@ -86,10 +86,14 @@ class Ruleset:
 
     def referenced_labels(self) -> set[str]:
         """Return set of label strings this ruleset can produce. Used by engine validation."""
+        labels: set[str] = set()
         match = getattr(self, "_match", None)
-        if match is None:
-            return set()
-        return {v for v in match.values() if isinstance(v, str)}
+        if match is not None:
+            labels |= {v for v in match.values() if isinstance(v, str)}
+        compiled = getattr(self, "_compiled", None)
+        if compiled is not None:
+            labels |= {label for label, _ in compiled}
+        return labels
 
     def classify(self, signal: Signal) -> SenseResult | None:
         """Classify a signal. Override in subclass for custom logic."""
@@ -132,8 +136,6 @@ class Ruleset:
         return signal.get(field)
 
     def _match_value(self, value: Any) -> SenseResult | None:
-        field = self.field
-
         if value in self._exact_keys:
             label = self._exact_keys[value]
             if label is None:
@@ -145,13 +147,6 @@ class Ruleset:
             if range_key in self._range_keys:
                 label = self._range_keys[range_key]
                 return SenseResult(label=label, confidence=1.0)
-
-        if isinstance(value, str) and self._exact_keys:
-            for pattern, label in self._exact_keys.items():
-                if isinstance(pattern, str) and pattern in value:
-                    if label is None:
-                        return None
-                    return SenseResult(label=label, confidence=1.0)
 
         return None
 

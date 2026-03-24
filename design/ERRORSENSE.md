@@ -40,12 +40,14 @@ from errorsense import Ruleset
 
 Ruleset(field="status_code", match={400: "client", 502: "server"})
 Ruleset(field="status_code", match={"4xx": "client", 503: "server"})
-Ruleset(field="headers.content-type", match={"text/html": "server"})
 Ruleset(field="body.error.type", match={"validation_error": "client"})
+Ruleset(field="headers.content-type", patterns=[("server", [r"^text/html"])])
 Ruleset(field="body", patterns=[("server", [r"OOM"]), ("client", [r"invalid"])])
 ```
 
 **Field resolution:** Plain field → `signal[field]`. `headers.*` → header lookup. `body.*` → JSON parse + dot-path. `body` (no dots) → raw string.
+
+**Match behavior:** `match=` does exact equality (`==`). For int fields, range keys like `"4xx"` match the hundred-range. For substring/prefix matching, use `patterns=` with regex.
 
 **Confidence:** Match = 1.0. Pattern = 0.9. Custom subclass sets its own.
 

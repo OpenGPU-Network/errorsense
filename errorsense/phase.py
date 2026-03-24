@@ -97,6 +97,11 @@ class Phase:
         return None
 
     def _run_skills_sync(self, signal: Signal, explain: bool) -> SenseResult | None:
+        """Run skills sequentially. Highest confidence wins.
+
+        Note: async variant runs skills concurrently via asyncio.gather,
+        so ordering may differ when skills tie on confidence.
+        """
         if not self._llm_client:
             return None
 
