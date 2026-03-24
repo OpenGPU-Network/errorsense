@@ -45,7 +45,7 @@ class TrailingConfig:
         count_labels: Only these labels count toward threshold.
         history_size: Max errors kept per key (ring buffer).
         reviewer_llm: LLM config for review. Set to enable review, None to disable.
-        reviewer_skill: Custom review skill. Defaults to built-in reclassification.
+        reviewer_skill: Custom review skill. Defaults to built-in reviewer.
     """
 
     threshold: int = 3

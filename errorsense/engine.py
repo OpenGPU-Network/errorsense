@@ -330,7 +330,7 @@ class ErrorSense:
 
     def _get_reviewer_skill(self) -> Skill:
         if self._reviewer_skill is None:
-            self._reviewer_skill = Skill("reclassification")
+            self._reviewer_skill = Skill("reviewer")
         return self._reviewer_skill
 
     def _build_review_context(self, key: str) -> tuple[Signal, Skill]:

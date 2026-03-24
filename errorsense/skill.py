@@ -15,7 +15,7 @@ class Skill:
     Instructions are loaded from a markdown file by default. Built-in skills
     live in errorsense/skills/. Custom skills can point to any file path.
 
-    For programmatic use (e.g. Tracker reclassification), inline instructions=
+    For programmatic use (e.g. trailing review), inline instructions=
     is also supported.
 
     Args:

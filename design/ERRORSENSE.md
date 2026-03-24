@@ -167,7 +167,7 @@ sense = ErrorSense(
         count_labels=["server"],
         history_size=10,
         reviewer_llm=LLMConfig(),          # enables LLM review at threshold
-        reviewer_skill=Skill("custom"),     # optional, defaults to built-in reclassification.md
+        reviewer_skill=Skill("custom"),     # optional, defaults to built-in reviewer.md
     ),
 )
 
@@ -305,7 +305,7 @@ errorsense/
 │   └── http_gateway.py     # http(), http_no_llm()
 └── skills/
     ├── http_classifier.md  # HTTP error classification instructions
-    └── reclassification.md # Trailing review instructions
+    └── reviewer.md         # Trailing review instructions
 ```
 
 ## Dependencies
