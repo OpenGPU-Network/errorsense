@@ -9,7 +9,7 @@ description = "Error classification engine. Rules for the obvious, AI for the am
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-authors = [{ name = "OpenGPU", email = "dev@opengpu.network" }]
+authors = [{ name = "Can", email = "can@opengpu.network" }]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -26,11 +26,10 @@ keywords = ["error-classification", "circuit-breaker", "observability", "llm"]
 
 [project.optional-dependencies]
 llm = ["httpx>=0.25"]
-dev = ["pytest>=7.0", "pytest-asyncio>=0.21"]
 
 [project.urls]
-Homepage = "https://github.com/opengpu/errorsense"
-Documentation = "https://github.com/opengpu/errorsense#readme"
+Homepage = "https://github.com/OpenGPU-Network/errorsense"
+Documentation = "https://github.com/OpenGPU-Network/errorsense#readme"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

@@ -335,6 +335,5 @@ pip install errorsense[llm]
 
 | Version | Deliverable |
 |---------|-------------|
-| **v0.1** (done) | Core engine, Signal, Ruleset, Skill, Phase, ErrorSense, trailing, presets, 81 tests |
+| **v0.1** (done) | Core engine, Signal, Ruleset, Skill, Phase, ErrorSense, trailing, presets, 81 tests, PyPI publish |
 | **v0.2** | Relay integration, more presets, community skill packs |
-| **v1.0** | PyPI publish |
