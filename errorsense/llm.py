@@ -29,7 +29,8 @@ DEFAULT_PROMPT_FORMAT = (
     "{instructions}\n\n"
     "Classify the following error signal into exactly one of these labels: {labels}\n\n"
     "Signal data:\n{signal}\n\n"
-    'Reply ONLY with JSON: {{"label": "...", "confidence": 0.0, "reason": "..."}}'
+    "Respond with ONLY a valid JSON object. No explanation, no markdown, no code fences.\n"
+    'Format: {{"label": "<one of the labels above>", "confidence": <0.0-1.0>, "reason": "<short explanation>"}}'
 )
 
 
@@ -88,6 +89,48 @@ def _build_headers(config: LLMConfig) -> dict:
     }
 
 
+def _extract_json(raw: str) -> dict | None:
+    """Best-effort JSON extraction from LLM output.
+
+    Handles thinking blocks (<think>...</think>), code fences, and
+    JSON embedded in prose.
+    """
+    import re
+
+    text = raw.strip()
+
+    # Strip paired XML-like blocks (<think>, <reasoning>, <scratchpad>, etc.)
+    text = re.sub(r"<(\w+)>.*?</\1>", "", text, flags=re.DOTALL).strip()
+
+    # Strip code fences
+    if text.startswith("```"):
+        text = text.split("\n", 1)[-1]
+        text = text.rsplit("```", 1)[0].strip()
+
+    # Try direct parse
+    try:
+        return json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Find first {...} block with brace matching
+    start = text.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    for i in range(start, len(text)):
+        if text[i] == "{":
+            depth += 1
+        elif text[i] == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(text[start : i + 1])
+                except (json.JSONDecodeError, ValueError):
+                    return None
+    return None
+
+
 def _parse_response(
     data: dict,
     labels: list[str],
@@ -96,31 +139,41 @@ def _parse_response(
 ) -> SenseResult | None:
     try:
         content = data["choices"][0]["message"]["content"]
-        content = content.strip()
-        if content.startswith("```"):
-            content = content.split("\n", 1)[-1]
-            content = content.rsplit("```", 1)[0]
-        parsed = json.loads(content.strip())
+    except (KeyError, IndexError):
+        logger.warning("Skill %r: no content in LLM response: %s", skill_name, data)
+        return None
 
+    parsed = _extract_json(content)
+    if parsed is None:
+        logger.warning(
+            "Skill %r: could not extract JSON from LLM response: %.300s",
+            skill_name,
+            content,
+        )
+        return None
+
+    try:
         label = parsed.get("label", "")
         confidence = min(1.0, max(0.0, float(parsed.get("confidence", 0.7))))
         reason = parsed.get("reason") if include_reason else None
-
-        if labels and label not in labels:
-            logger.warning(
-                "Skill %r: LLM returned unknown label %r", skill_name, label
-            )
-            return None
-
-        return SenseResult(
-            label=label,
-            confidence=confidence,
-            skill_name=skill_name,
-            reason=reason,
+    except (ValueError, TypeError) as e:
+        logger.warning(
+            "Skill %r: invalid field values in LLM response: %s", skill_name, e
         )
-    except (KeyError, json.JSONDecodeError, IndexError, ValueError) as e:
-        logger.warning("Failed to parse LLM response for skill %r: %s", skill_name, e)
         return None
+
+    if labels and label not in labels:
+        logger.warning(
+            "Skill %r: LLM returned unknown label %r", skill_name, label
+        )
+        return None
+
+    return SenseResult(
+        label=label,
+        confidence=confidence,
+        skill_name=skill_name,
+        reason=reason,
+    )
 
 
 class LLMClient:

@@ -6,6 +6,7 @@ from errorsense.llm import (
     DEFAULT_PROMPT_FORMAT,
     LLMConfig,
     _build_prompt,
+    _extract_json,
     _parse_response,
 )
 from errorsense.signal import Signal
@@ -124,3 +125,55 @@ class TestBuildPrompt:
         config = LLMConfig()
         prompt = _build_prompt(signal, skill, [], config)
         assert "unknown" in prompt
+
+    def test_prompt_says_json_only(self):
+        signal = Signal({"x": 1})
+        skill = self._make_skill()
+        config = LLMConfig()
+        prompt = _build_prompt(signal, skill, ["a"], config)
+        assert "ONLY" in prompt
+        assert "No explanation" in prompt
+
+
+class TestExtractJson:
+    def test_plain_json(self):
+        assert _extract_json('{"label": "x"}') == {"label": "x"}
+
+    def test_thinking_block(self):
+        raw = '<think>\nLet me analyze...\n</think>\n{"label": "server", "confidence": 0.9}'
+        result = _extract_json(raw)
+        assert result["label"] == "server"
+
+    def test_reasoning_block(self):
+        raw = '<reasoning>The error is clearly a timeout</reasoning>\n{"label": "transient"}'
+        result = _extract_json(raw)
+        assert result["label"] == "transient"
+
+    def test_multiline_xml_block(self):
+        raw = '<scratchpad>step 1\nstep 2</scratchpad>\n\n{"label": "client"}'
+        result = _extract_json(raw)
+        assert result["label"] == "client"
+
+    def test_code_fence(self):
+        raw = '```json\n{"label": "server"}\n```'
+        result = _extract_json(raw)
+        assert result["label"] == "server"
+
+    def test_json_in_prose(self):
+        raw = 'Based on analysis, here is the result:\n{"label": "server", "confidence": 0.8}\nDone.'
+        result = _extract_json(raw)
+        assert result["label"] == "server"
+
+    def test_no_json(self):
+        assert _extract_json("This is just text with no JSON") is None
+
+    def test_empty_string(self):
+        assert _extract_json("") is None
+
+    def test_xml_block_then_code_fence(self):
+        raw = '<think>analyzing...</think>\n```json\n{"label": "client"}\n```'
+        result = _extract_json(raw)
+        assert result["label"] == "client"
+
+    def test_unclosed_brace(self):
+        assert _extract_json('{"label": "server"') is None
